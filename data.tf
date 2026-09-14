@@ -10,6 +10,35 @@ locals {
     cost       = var.jira_profiles[var.cost_jira_integration_profile]
     security   = var.jira_profiles[var.security_jira_integration_profile]
   }
+
+  # Every incident event PagerDuty stores on a Slack connection. PagerDuty
+  # EXPANDS the list server-side: a connection created with the twelve events
+  # v0.2.0 declared read back as nineteen, so every later plan proposed removing
+  # the other seven, and applying that would have narrowed what the channel
+  # receives. Measured against live connections on 2026-09-14, matching the
+  # rhythmic-workload module's v1.0.2 fix. If PagerDuty adds an event, add it
+  # here; never let an apply remove one.
+  slack_connection_events = [
+    "incident.acknowledged",
+    "incident.conference_bridge.updated",
+    "incident.custom_field_values.updated",
+    "incident.delegated",
+    "incident.escalated",
+    "incident.priority_updated",
+    "incident.reassigned",
+    "incident.reopened",
+    "incident.resolved",
+    "incident.responder.added",
+    "incident.responder.replied",
+    "incident.service_updated",
+    "incident.status_update_published",
+    "incident.title_updated",
+    "incident.triggered",
+    "incident.unacknowledged",
+    "incident.urgency_updated",
+    "incident.workflow.completed",
+    "incident.workflow.started",
+  ]
 }
 
 ########################################

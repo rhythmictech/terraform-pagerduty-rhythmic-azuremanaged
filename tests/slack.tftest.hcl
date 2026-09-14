@@ -70,10 +70,12 @@ run "all_channels_wired" {
     error_message = "the Slack workspace id should flow through"
   }
 
-  # The full twelve-event notification config is present with all priorities.
+  # The full nineteen-event notification config is present with all priorities.
+  # PagerDuty stores 19 events for a Slack connection; declaring fewer makes every
+  # plan propose removing the rest (see local.slack_connection_events).
   assert {
-    condition     = length(pagerduty_slack_connection.account[0].config[0].events) == 12
-    error_message = "the Slack connection should subscribe to the full twelve-event list"
+    condition     = length(pagerduty_slack_connection.account[0].config[0].events) == 19
+    error_message = "the Slack connection should subscribe to all nineteen events PagerDuty stores"
   }
 
   assert {
