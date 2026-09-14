@@ -65,20 +65,7 @@ resource "pagerduty_slack_connection" "security" {
   workspace_id      = var.slack_workspace_id
 
   config {
-    events = [
-      "incident.triggered",
-      "incident.acknowledged",
-      "incident.escalated",
-      "incident.resolved",
-      "incident.reassigned",
-      "incident.unacknowledged",
-      "incident.delegated",
-      "incident.priority_updated",
-      "incident.responder.added",
-      "incident.responder.replied",
-      "incident.status_update_published",
-      "incident.reopened"
-    ]
+    events     = local.slack_connection_events
     priorities = ["*"]
   }
 }
