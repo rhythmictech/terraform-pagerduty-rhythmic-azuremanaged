@@ -7,9 +7,11 @@ Jira Cloud mapping rules, plus one custom account suppression rule to show the
 input shape.
 
 The escalation policies, the customer business service, the "Customer Success
-Team", the Jira Cloud account mapping and the Key Vault secrets must already
-exist in PagerDuty and Azure (see the module README for the prerequisites and
-the Key Vault secret naming contract).
+Team" and the Jira Cloud account mapping must already exist in PagerDuty (see
+the module README for the prerequisites). The Jira integration profile values
+are supplied inline through `var.jira_profiles`; a client repository reads them
+from wherever the operator keeps them instead (the module README shows the AWS
+SSM wiring).
 
 ```bash
 terraform init

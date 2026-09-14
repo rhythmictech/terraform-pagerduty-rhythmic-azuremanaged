@@ -6,57 +6,25 @@ mock_provider "pagerduty" {
   source = "./tests/setup-pagerduty"
 }
 
-mock_provider "azurerm" {
-  source = "./tests/setup"
-}
-
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["custom-fixed-fields"]
-  values = { value = "[]" }
+# One Jira profile is enough for every run: all four concerns default to "NOC".
+# The values are shaped like the fleet's SSM parameters ("id:key", "id:name",
+# JSON arrays), which is the contract the module documents.
+variables {
+  jira_profiles = {
+    NOC = {
+      account_mapping_name             = "example-jira"
+      project                          = "10001:OPS"
+      project_name                     = "Operations"
+      issue_type                       = "10002:Task"
+      issue_status_open                = "1:Open"
+      issue_status_acknowledged        = "3:In Progress"
+      issue_status_resolved            = "5:Done"
+      sync_notes_user                  = "noc@example.com"
+      create_issue_on_incident_trigger = "true"
+      custom_jira_fields               = "[]"
+      custom_fixed_fields              = "[]"
+    }
+  }
 }
 
 run "all_channels_wired" {
@@ -65,7 +33,6 @@ run "all_channels_wired" {
   variables {
     org_name             = "TestOrg"
     customer_name        = "TestCustomer"
-    key_vault_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/test-vault"
     jira_organization_id = "test-org-id"
 
     slack_workspace_id                  = "W-TEST"
@@ -123,7 +90,6 @@ run "no_channels" {
   variables {
     org_name             = "TestOrg"
     customer_name        = "TestCustomer"
-    key_vault_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/test-vault"
     jira_organization_id = "test-org-id"
   }
 

@@ -38,46 +38,71 @@ not create them:
 - The customer **business service**, named exactly `var.customer_name`.
 - The **Customer Success Team** in PagerDuty.
 - A **Jira Cloud account mapping** in PagerDuty for each profile's subdomain.
-- An Azure **Key Vault** populated with the Jira integration profile secrets
-  described below. The vault and its secrets are an onboarding-runbook step.
 
-## Key Vault secret naming contract
+## Jira integration profiles
 
-The module reads eleven secrets per Jira integration profile. Key Vault secret
-names allow only letters, numbers and dashes, so the parameter names are
-dash-delimited and each secret is named `jira-<profile>-<param>` (the default
-profile is `NOC`, so `jira-NOC-project`, `jira-NOC-issue-type`, and so on).
+Each notification service files its tickets under a **Jira integration
+profile**: the Jira project, issue type, status mapping, sync-notes user and
+custom fields for one destination. The module takes the profile **values** as
+the `jira_profiles` input, a map keyed by profile name, and the four
+`<concern>_jira_integration_profile` inputs select which entry each concern
+uses (all four default to `NOC`). The module reads no secret store itself:
+where the values live is the caller's decision, and the operator's own store is
+the right place for what is operator-internal routing configuration.
 
-| Secret suffix | Meaning | Value shape |
+Each entry carries eleven fields. Their shapes mirror the `/config/jira/<profile>/<param>`
+parameters the AWS sibling module reads from SSM, one for one, so values pass
+straight through:
+
+| Field | Meaning | Value shape |
 |---|---|---|
-| `account-mapping-name` | Jira Cloud account mapping subdomain | plain string |
+| `account_mapping_name` | Jira Cloud account mapping subdomain | plain string |
 | `project` | Jira project | `id:key` (for example `10001:OPS`) |
-| `project-name` | Jira project display name | plain string |
-| `issue-type` | Jira issue type | `id:name` (for example `10001:Task`) |
-| `issue-status-open` | status applied when an incident triggers | `id:name` |
-| `issue-status-acknowledged` | status applied when acknowledged | `id:name` |
-| `issue-status-resolved` | status applied when resolved | `id:name` |
-| `sync-notes-user` | PagerDuty user email used to sync notes | plain string |
-| `create-issue-on-incident-trigger` | auto-create a Jira issue on trigger | `true` or `false` |
-| `custom-jira-fields` | dynamic Jira-value custom fields | JSON array |
-| `custom-fixed-fields` | constant custom fields | JSON array |
+| `project_name` | Jira project display name | plain string |
+| `issue_type` | Jira issue type | `id:name` (for example `10001:Task`) |
+| `issue_status_open` | status applied when an incident triggers | `id:name` |
+| `issue_status_acknowledged` | status applied when acknowledged | `id:name` |
+| `issue_status_resolved` | status applied when resolved | `id:name` |
+| `sync_notes_user` | PagerDuty user email used to sync notes | plain string |
+| `create_issue_on_incident_trigger` | auto-create a Jira issue on trigger | `"true"` or `"false"` |
+| `custom_jira_fields` | dynamic Jira-value custom fields | JSON array, as a string |
+| `custom_fixed_fields` | constant custom fields | JSON array, as a string |
 
-The five `id:...` secrets are colon-joined and split inside the module. The two
-JSON-array secrets each hold a list of objects with `target_issue_field`,
-`target_issue_field_name` and `value` keys (use `[]` when there are none).
+The five `id:...` fields are colon-joined and split inside the module. The two
+JSON-array fields each hold a list of objects with `target_issue_field`,
+`target_issue_field_name` and `value` keys (use `"[]"` when there are none).
+Pass **plain, non-sensitive** values: the custom-field arrays drive `for_each`,
+which Terraform refuses for sensitive values.
 
-Populate a secret with, for example:
+Reading the profiles from AWS SSM in the operator's account, the way Rhythmic's
+AWS client repositories do, looks like this in the calling configuration:
 
-```bash
-az keyvault secret set \
-  --vault-name my-vault \
-  --name "jira-NOC-issue-type" \
-  --value "10001:Task"
+```hcl
+locals {
+  jira_profile_names = ["cs-account", "cs-compliance", "cs-cost", "noc"]
+  jira_parameters = [
+    "account_mapping_name", "project", "project_name", "issue_type",
+    "issue_status_open", "issue_status_acknowledged", "issue_status_resolved",
+    "sync_notes_user", "create_issue_on_incident_trigger",
+    "custom_jira_fields", "custom_fixed_fields",
+  ]
+}
 
-az keyvault secret set \
-  --vault-name my-vault \
-  --name "jira-NOC-custom-jira-fields" \
-  --value '[]'
+data "aws_ssm_parameter" "jira" {
+  for_each = { for p in setproduct(local.jira_profile_names, local.jira_parameters) : "${p[0]}/${p[1]}" => p }
+
+  name = "/config/jira/${each.value[0]}/${each.value[1]}"
+}
+
+locals {
+  # String parameters: insecure_value is the same text without the sensitive
+  # mark, which the module needs for its for_each over the custom-field arrays.
+  jira_profiles = {
+    for profile in local.jira_profile_names : profile => {
+      for param in local.jira_parameters : param => data.aws_ssm_parameter.jira["${profile}/${param}"].insecure_value
+    }
+  }
+}
 ```
 
 ## Suppression defaults
@@ -120,30 +145,44 @@ Per-concern `*_service_id`, `*_service_name`, `*_datadog_integration_key` and
 
 ```hcl
 module "azure_managed_services" {
-  source = "git::https://github.com/rhythmictech/terraform-pagerduty-rhythmic-azuremanaged.git?ref=v0.1.0"
+  source = "git::https://github.com/rhythmictech/terraform-pagerduty-rhythmic-azuremanaged.git?ref=v0.2.0"
 
   org_name             = "ExampleOrg"
   customer_name        = "ExampleCustomer"
   jira_organization_id = "00000000-0000-0000-0000-000000000000"
-  key_vault_id         = azurerm_key_vault.jira.id
+
+  jira_profiles                       = local.jira_profiles
+  account_jira_integration_profile    = "cs-account"
+  compliance_jira_integration_profile = "cs-compliance"
+  cost_jira_integration_profile       = "cs-cost"
+  security_jira_integration_profile   = "noc"
 }
 ```
 
-The `azurerm` provider must be configured by the calling configuration (the
-module reads Key Vault secrets through it). See `examples/basic` for a complete
-invocation.
+The module needs only the `pagerduty` provider. See `examples/basic` for a
+complete, self-contained invocation.
 
 ## Differences from the AWS sibling
 
 Compared with `rhythmictech/rhythmic-awsmanaged/pagerduty`:
 
 - `org_name` replaces `awsorg_name`, and `cloud_name` defaults to `Azure`.
-- Jira integration profile secrets are read from an Azure **Key Vault** instead
-  of AWS SSM parameters, using the naming contract above.
+- Jira integration profile values arrive through the `jira_profiles` input
+  instead of being read from SSM inside the module. The field shapes are the
+  same, so a caller can feed the module from the same SSM parameters (see
+  above) or from anywhere else.
 - The default suppression rules are Azure-specific and spread by concern
   (account gets the Service Health and Advisor rules; security gets the Defender
   rule) rather than shipping only on the account service.
-- An explicit `azurerm` provider is required for the Key Vault reads.
+- No cloud provider is required at all; the module is `pagerduty`-only.
+
+## Upgrading from v0.1.0
+
+v0.1.0 read the eleven parameters per profile from an Azure Key Vault named by
+`key_vault_id`, as secrets called `jira-<profile>-<param>`. v0.2.0 removes that
+input, the `azurerm` provider requirement and the Key Vault naming contract.
+Pass the same values through `jira_profiles` (underscore-delimited field names,
+identical shapes) and drop the vault; no PagerDuty resource changes.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -151,15 +190,13 @@ Compared with `rhythmictech/rhythmic-awsmanaged/pagerduty`:
 | Name | Version |
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9 |
-| <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | ~> 4.0 |
 | <a name="requirement_pagerduty"></a> [pagerduty](#requirement\_pagerduty) | ~> 3.17 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | 4.81.0 |
-| <a name="provider_pagerduty"></a> [pagerduty](#provider\_pagerduty) | 3.34.0 |
+| <a name="provider_pagerduty"></a> [pagerduty](#provider\_pagerduty) | 3.36.0 |
 
 ## Modules
 
@@ -195,10 +232,6 @@ No modules.
 | [pagerduty_slack_connection.compliance](https://registry.terraform.io/providers/PagerDuty/pagerduty/latest/docs/resources/slack_connection) | resource |
 | [pagerduty_slack_connection.cost](https://registry.terraform.io/providers/PagerDuty/pagerduty/latest/docs/resources/slack_connection) | resource |
 | [pagerduty_slack_connection.security](https://registry.terraform.io/providers/PagerDuty/pagerduty/latest/docs/resources/slack_connection) | resource |
-| [azurerm_key_vault_secret.jira_account](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
-| [azurerm_key_vault_secret.jira_compliance](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
-| [azurerm_key_vault_secret.jira_cost](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
-| [azurerm_key_vault_secret.jira_security](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/key_vault_secret) | data source |
 | [pagerduty_business_service.customer](https://registry.terraform.io/providers/PagerDuty/pagerduty/latest/docs/data-sources/business_service) | data source |
 | [pagerduty_escalation_policy.account](https://registry.terraform.io/providers/PagerDuty/pagerduty/latest/docs/data-sources/escalation_policy) | data source |
 | [pagerduty_escalation_policy.compliance](https://registry.terraform.io/providers/PagerDuty/pagerduty/latest/docs/data-sources/escalation_policy) | data source |
@@ -225,24 +258,24 @@ No modules.
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_account_default_suppression_rules"></a> [account\_default\_suppression\_rules](#input\_account\_default\_suppression\_rules) | Default event suppression rules (override to an empty list to disable) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | <pre>[<br/>  {<br/>    "condition": "event.custom_details.body matches part 'Planned Maintenance' or event.custom_details.body matches part 'incidentType: Maintenance'",<br/>    "label": "Service Health planned maintenance"<br/>  },<br/>  {<br/>    "condition": "event.custom_details.body matches part 'Microsoft.Advisor/recommendations'",<br/>    "label": "Advisor informational recommendation"<br/>  }<br/>]</pre> | no |
-| <a name="input_account_jira_integration_profile"></a> [account\_jira\_integration\_profile](#input\_account\_jira\_integration\_profile) | The Jira integration profile | `string` | `"NOC"` | no |
+| <a name="input_account_jira_integration_profile"></a> [account\_jira\_integration\_profile](#input\_account\_jira\_integration\_profile) | Key of the jira\_profiles entry the account service files tickets under | `string` | `"NOC"` | no |
 | <a name="input_account_suppression_rules"></a> [account\_suppression\_rules](#input\_account\_suppression\_rules) | Event suppression rules (uses PagerDuty event orchestration, merged with `account_default_suppression_rules`) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_account_timebound_suppression_rules"></a> [account\_timebound\_suppression\_rules](#input\_account\_timebound\_suppression\_rules) | Timebound event suppression rules (uses PagerDuty event orchestration) | <pre>list(object({<br/>    label      = string<br/>    condition  = string<br/>    start_time = string<br/>    end_time   = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_cloud_name"></a> [cloud\_name](#input\_cloud\_name) | Cloud provider name used in PagerDuty service and business-service display names (e.g., Azure, AWS, OCI, GCP) | `string` | `"Azure"` | no |
 | <a name="input_compliance_default_suppression_rules"></a> [compliance\_default\_suppression\_rules](#input\_compliance\_default\_suppression\_rules) | Default event suppression rules (override to an empty list to disable) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | `[]` | no |
-| <a name="input_compliance_jira_integration_profile"></a> [compliance\_jira\_integration\_profile](#input\_compliance\_jira\_integration\_profile) | The Jira integration profile | `string` | `"NOC"` | no |
+| <a name="input_compliance_jira_integration_profile"></a> [compliance\_jira\_integration\_profile](#input\_compliance\_jira\_integration\_profile) | Key of the jira\_profiles entry the compliance service files tickets under | `string` | `"NOC"` | no |
 | <a name="input_compliance_suppression_rules"></a> [compliance\_suppression\_rules](#input\_compliance\_suppression\_rules) | Event suppression rules (uses PagerDuty event orchestration, merged with `compliance_default_suppression_rules`) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_compliance_timebound_suppression_rules"></a> [compliance\_timebound\_suppression\_rules](#input\_compliance\_timebound\_suppression\_rules) | Timebound event suppression rules (uses PagerDuty event orchestration) | <pre>list(object({<br/>    label      = string<br/>    condition  = string<br/>    start_time = string<br/>    end_time   = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_cost_default_suppression_rules"></a> [cost\_default\_suppression\_rules](#input\_cost\_default\_suppression\_rules) | Default event suppression rules (override to an empty list to disable) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | `[]` | no |
-| <a name="input_cost_jira_integration_profile"></a> [cost\_jira\_integration\_profile](#input\_cost\_jira\_integration\_profile) | The Jira integration profile | `string` | `"NOC"` | no |
+| <a name="input_cost_jira_integration_profile"></a> [cost\_jira\_integration\_profile](#input\_cost\_jira\_integration\_profile) | Key of the jira\_profiles entry the cost service files tickets under | `string` | `"NOC"` | no |
 | <a name="input_cost_suppression_rules"></a> [cost\_suppression\_rules](#input\_cost\_suppression\_rules) | Event suppression rules (uses PagerDuty event orchestration, merged with `cost_default_suppression_rules`) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_cost_timebound_suppression_rules"></a> [cost\_timebound\_suppression\_rules](#input\_cost\_timebound\_suppression\_rules) | Timebound event suppression rules (uses PagerDuty event orchestration) | <pre>list(object({<br/>    label      = string<br/>    condition  = string<br/>    start_time = string # Format "2024-03-00 00:00:00 Etc/UTC"<br/>    end_time   = string # Format "2024-03-00 00:00:00 Etc/UTC"<br/>  }))</pre> | `[]` | no |
 | <a name="input_customer_name"></a> [customer\_name](#input\_customer\_name) | Customer Name | `string` | n/a | yes |
 | <a name="input_jira_organization_id"></a> [jira\_organization\_id](#input\_jira\_organization\_id) | Organization ID for Jira integration | `string` | n/a | yes |
-| <a name="input_key_vault_id"></a> [key\_vault\_id](#input\_key\_vault\_id) | Resource ID of the existing Key Vault holding the Jira integration profile secrets (see README for the secret naming contract) | `string` | n/a | yes |
+| <a name="input_jira_profiles"></a> [jira\_profiles](#input\_jira\_profiles) | Jira integration profiles keyed by profile name; each concern's *\_jira\_integration\_profile input selects one. Field shapes mirror the fleet's /config/jira/<profile>/<param> parameters (see README). | <pre>map(object({<br/>    account_mapping_name             = string<br/>    project                          = string # "id:key"<br/>    project_name                     = string<br/>    issue_type                       = string # "id:name"<br/>    issue_status_open                = string # "id:name"<br/>    issue_status_acknowledged        = string # "id:name"<br/>    issue_status_resolved            = string # "id:name"<br/>    sync_notes_user                  = string # PagerDuty user email<br/>    create_issue_on_incident_trigger = string # "true" or "false"<br/>    custom_jira_fields               = string # JSON array<br/>    custom_fixed_fields              = string # JSON array<br/>  }))</pre> | n/a | yes |
 | <a name="input_org_name"></a> [org\_name](#input\_org\_name) | Organization or tenant name used in PagerDuty service and business-service display names (nickname or formal name) | `string` | n/a | yes |
 | <a name="input_security_default_suppression_rules"></a> [security\_default\_suppression\_rules](#input\_security\_default\_suppression\_rules) | Default event suppression rules (override to an empty list to disable) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | <pre>[<br/>  {<br/>    "condition": "event.custom_details.body matches part 'severity: Informational' or event.custom_details.body matches part 'Severity: Informational'",<br/>    "label": "Defender informational alert"<br/>  }<br/>]</pre> | no |
-| <a name="input_security_jira_integration_profile"></a> [security\_jira\_integration\_profile](#input\_security\_jira\_integration\_profile) | The Jira integration profile | `string` | `"NOC"` | no |
+| <a name="input_security_jira_integration_profile"></a> [security\_jira\_integration\_profile](#input\_security\_jira\_integration\_profile) | Key of the jira\_profiles entry the security service files tickets under | `string` | `"NOC"` | no |
 | <a name="input_security_suppression_rules"></a> [security\_suppression\_rules](#input\_security\_suppression\_rules) | Event suppression rules (uses PagerDuty event orchestration, merged with `security_default_suppression_rules`) | <pre>list(object({<br/>    label     = string<br/>    condition = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_security_timebound_suppression_rules"></a> [security\_timebound\_suppression\_rules](#input\_security\_timebound\_suppression\_rules) | Timebound event suppression rules (uses PagerDuty event orchestration) | <pre>list(object({<br/>    label      = string<br/>    condition  = string<br/>    start_time = string # Format "2024-03-00 00:00:00 Etc/UTC"<br/>    end_time   = string # Format "2024-03-00 00:00:00 Etc/UTC"<br/>  }))</pre> | `[]` | no |
 | <a name="input_slack_compliance_team_channel"></a> [slack\_compliance\_team\_channel](#input\_slack\_compliance\_team\_channel) | The Slack channel ID for the compliance team | `string` | `null` | no |

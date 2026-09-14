@@ -17,11 +17,6 @@ variable "customer_name" {
   type        = string
 }
 
-variable "key_vault_id" {
-  description = "Resource ID of the existing Key Vault holding the Jira integration profile secrets (see README for the secret naming contract)"
-  type        = string
-}
-
 variable "slack_compliance_team_channel" {
   default     = null
   description = "The Slack channel ID for the compliance team"
@@ -49,44 +44,67 @@ variable "slack_workspace_id" {
 ########################################
 # Jira Integration
 ########################################
+# The profile VALUES, keyed by profile name. The module reads no secret store:
+# the caller supplies these from wherever the operator keeps them (for Rhythmic,
+# the /config/jira/<profile>/<param> SSM parameters in its own ops account, the
+# same source the AWS sibling module reads directly). Field shapes match those
+# parameters one for one so values can be passed straight through: the five
+# id:... fields are colon-joined and split inside the module, the two
+# custom-field entries are JSON arrays of {target_issue_field,
+# target_issue_field_name, value} objects ("[]" when there are none), and the
+# create-issue trigger is "true" or "false". Pass plain (non-sensitive) values;
+# the custom-field arrays drive for_each, which sensitive values cannot.
+variable "jira_profiles" {
+  description = "Jira integration profiles keyed by profile name; each concern's *_jira_integration_profile input selects one. Field shapes mirror the fleet's /config/jira/<profile>/<param> parameters (see README)."
+  type = map(object({
+    account_mapping_name             = string
+    project                          = string # "id:key"
+    project_name                     = string
+    issue_type                       = string # "id:name"
+    issue_status_open                = string # "id:name"
+    issue_status_acknowledged        = string # "id:name"
+    issue_status_resolved            = string # "id:name"
+    sync_notes_user                  = string # PagerDuty user email
+    create_issue_on_incident_trigger = string # "true" or "false"
+    custom_jira_fields               = string # JSON array
+    custom_fixed_fields              = string # JSON array
+  }))
+
+  validation {
+    condition = alltrue([
+      for profile in [
+        var.account_jira_integration_profile,
+        var.compliance_jira_integration_profile,
+        var.cost_jira_integration_profile,
+        var.security_jira_integration_profile,
+      ] : contains(keys(var.jira_profiles), profile)
+    ])
+    error_message = "Every *_jira_integration_profile must name a key of jira_profiles."
+  }
+}
+
 variable "account_jira_integration_profile" {
   default     = "NOC"
-  description = "The Jira integration profile"
+  description = "Key of the jira_profiles entry the account service files tickets under"
   type        = string
-  validation {
-    condition     = can(regex("^[0-9a-zA-Z-]+$", var.account_jira_integration_profile))
-    error_message = "Jira integration profile names may contain only letters, numbers, and dashes (they form Key Vault secret names)."
-  }
 }
 
 variable "cost_jira_integration_profile" {
   default     = "NOC"
-  description = "The Jira integration profile"
+  description = "Key of the jira_profiles entry the cost service files tickets under"
   type        = string
-  validation {
-    condition     = can(regex("^[0-9a-zA-Z-]+$", var.cost_jira_integration_profile))
-    error_message = "Jira integration profile names may contain only letters, numbers, and dashes (they form Key Vault secret names)."
-  }
 }
 
 variable "compliance_jira_integration_profile" {
   default     = "NOC"
-  description = "The Jira integration profile"
+  description = "Key of the jira_profiles entry the compliance service files tickets under"
   type        = string
-  validation {
-    condition     = can(regex("^[0-9a-zA-Z-]+$", var.compliance_jira_integration_profile))
-    error_message = "Jira integration profile names may contain only letters, numbers, and dashes (they form Key Vault secret names)."
-  }
 }
 
 variable "security_jira_integration_profile" {
   default     = "NOC"
-  description = "The Jira integration profile"
+  description = "Key of the jira_profiles entry the security service files tickets under"
   type        = string
-  validation {
-    condition     = can(regex("^[0-9a-zA-Z-]+$", var.security_jira_integration_profile))
-    error_message = "Jira integration profile names may contain only letters, numbers, and dashes (they form Key Vault secret names)."
-  }
 }
 
 variable "jira_organization_id" {

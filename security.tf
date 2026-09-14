@@ -96,7 +96,7 @@ resource "pagerduty_jira_cloud_account_mapping_rule" "security" {
   config {
     service = pagerduty_service.security.id
     jira {
-      create_issue_on_incident_trigger = data.azurerm_key_vault_secret.jira_security["create-issue-on-incident-trigger"].value
+      create_issue_on_incident_trigger = local.jira.security.create_issue_on_incident_trigger
       sync_notes_user                  = data.pagerduty_user.security_user.id
 
       custom_fields {
@@ -121,7 +121,7 @@ resource "pagerduty_jira_cloud_account_mapping_rule" "security" {
       }
 
       dynamic "custom_fields" {
-        for_each = coalesce(jsondecode(nonsensitive(data.azurerm_key_vault_secret.jira_security["custom-jira-fields"].value)), [])
+        for_each = coalesce(jsondecode(local.jira.security.custom_jira_fields), [])
 
         content {
           target_issue_field      = custom_fields.value.target_issue_field
@@ -132,7 +132,7 @@ resource "pagerduty_jira_cloud_account_mapping_rule" "security" {
       }
 
       dynamic "custom_fields" {
-        for_each = coalesce(jsondecode(nonsensitive(data.azurerm_key_vault_secret.jira_security["custom-fixed-fields"].value)), [])
+        for_each = coalesce(jsondecode(local.jira.security.custom_fixed_fields), [])
 
         content {
           target_issue_field      = custom_fields.value.target_issue_field
@@ -143,8 +143,8 @@ resource "pagerduty_jira_cloud_account_mapping_rule" "security" {
       }
 
       issue_type {
-        id   = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-type"].value)[0])
-        name = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-type"].value)[1])
+        id   = split(":", local.jira.security.issue_type)[0]
+        name = split(":", local.jira.security.issue_type)[1]
       }
 
       priorities {
@@ -174,24 +174,24 @@ resource "pagerduty_jira_cloud_account_mapping_rule" "security" {
       }
 
       project {
-        id   = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["project"].value)[0])
-        key  = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["project"].value)[1])
-        name = data.azurerm_key_vault_secret.jira_security["project-name"].value
+        id   = split(":", local.jira.security.project)[0]
+        key  = split(":", local.jira.security.project)[1]
+        name = local.jira.security.project_name
       }
 
       status_mapping {
 
         acknowledged {
-          id   = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-status-acknowledged"].value)[0])
-          name = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-status-acknowledged"].value)[1])
+          id   = split(":", local.jira.security.issue_status_acknowledged)[0]
+          name = split(":", local.jira.security.issue_status_acknowledged)[1]
         }
         resolved {
-          id   = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-status-resolved"].value)[0])
-          name = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-status-resolved"].value)[1])
+          id   = split(":", local.jira.security.issue_status_resolved)[0]
+          name = split(":", local.jira.security.issue_status_resolved)[1]
         }
         triggered {
-          id   = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-status-open"].value)[0])
-          name = nonsensitive(split(":", data.azurerm_key_vault_secret.jira_security["issue-status-open"].value)[1])
+          id   = split(":", local.jira.security.issue_status_open)[0]
+          name = split(":", local.jira.security.issue_status_open)[1]
         }
       }
     }

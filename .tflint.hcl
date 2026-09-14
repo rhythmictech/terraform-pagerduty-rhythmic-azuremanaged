@@ -3,14 +3,8 @@ config {
   call_module_type = "all"
 }
 
-# azurerm ruleset (the Key Vault secret data sources are azurerm). The PagerDuty
-# resources have no dedicated ruleset; the core terraform rules below cover them.
-plugin "azurerm" {
-  enabled = true
-  version = "0.32.0"
-  source  = "github.com/terraform-linters/tflint-ruleset-azurerm"
-}
-
+# PagerDuty is the module's only provider and has no dedicated tflint ruleset;
+# the core terraform rules below cover it.
 rule "terraform_deprecated_interpolation" {
   enabled = true
 }
