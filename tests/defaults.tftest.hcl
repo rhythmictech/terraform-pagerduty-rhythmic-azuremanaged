@@ -8,60 +8,25 @@ mock_provider "pagerduty" {
   source = "./tests/setup-pagerduty"
 }
 
-mock_provider "azurerm" {
-  source = "./tests/setup"
-}
-
-# The colon default ("10001:Task") in the azurerm mock feeds the split-based
-# id/name extractions. Two secret shapes need pinning per profile: the boolean
-# create-issue trigger, and the two JSON-array custom-field secrets.
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["custom-fixed-fields"]
-  values = { value = "[]" }
+# One Jira profile is enough for every run: all four concerns default to "NOC".
+# The values are shaped like the fleet's SSM parameters ("id:key", "id:name",
+# JSON arrays), which is the contract the module documents.
+variables {
+  jira_profiles = {
+    NOC = {
+      account_mapping_name             = "example-jira"
+      project                          = "10001:OPS"
+      project_name                     = "Operations"
+      issue_type                       = "10002:Task"
+      issue_status_open                = "1:Open"
+      issue_status_acknowledged        = "3:In Progress"
+      issue_status_resolved            = "5:Done"
+      sync_notes_user                  = "noc@example.com"
+      create_issue_on_incident_trigger = "true"
+      custom_jira_fields               = "[]"
+      custom_fixed_fields              = "[]"
+    }
+  }
 }
 
 run "defaults" {
@@ -70,7 +35,6 @@ run "defaults" {
   variables {
     org_name             = "TestOrg"
     customer_name        = "TestCustomer"
-    key_vault_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/test-vault"
     jira_organization_id = "test-org-id"
   }
 
@@ -219,14 +183,22 @@ run "defaults" {
     error_message = "cost orchestration should be absent by default"
   }
 
-  # Key Vault secret names follow the jira-<profile>-<param> contract.
+  # The default profile's values reach the Jira wiring: the account mapping is
+  # looked up by the profile's subdomain, the sync-notes user by its email, and
+  # the colon-joined project value splits into id and key.
   assert {
-    condition     = data.azurerm_key_vault_secret.jira_account["project"].name == "jira-NOC-project"
-    error_message = "account project secret name should be jira-NOC-project"
+    condition     = data.pagerduty_jira_cloud_account_mapping.account.subdomain == "example-jira"
+    error_message = "account mapping subdomain should come from the selected Jira profile"
   }
 
   assert {
-    condition     = data.azurerm_key_vault_secret.jira_security["account-mapping-name"].name == "jira-NOC-account-mapping-name"
-    error_message = "security mapping-name secret name should be jira-NOC-account-mapping-name"
+    condition     = data.pagerduty_user.security_user.email == "noc@example.com"
+    error_message = "security sync-notes user should come from the selected Jira profile"
+  }
+
+  # config, jira and project are nested attributes (objects), hence dot access.
+  assert {
+    condition     = pagerduty_jira_cloud_account_mapping_rule.account.config.jira.project.id == "10001" && pagerduty_jira_cloud_account_mapping_rule.account.config.jira.project.key == "OPS"
+    error_message = "the project id:key value should split into id and key"
   }
 }

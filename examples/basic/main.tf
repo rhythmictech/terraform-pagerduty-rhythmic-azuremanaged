@@ -6,27 +6,20 @@ terraform {
       source  = "PagerDuty/pagerduty"
       version = "~> 3.17"
     }
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
   }
 }
 
 provider "pagerduty" {}
 
-# azurerm v4 makes subscription_id mandatory in the provider block. The module
-# only reads Key Vault secrets, so no Azure resources are created here.
-provider "azurerm" {
-  features {}
-  subscription_id = var.subscription_id
-}
-
 # Minimal invocation: four notification services (account, compliance, cost,
 # security), the umbrella business service, the Datadog integrations and the
 # Jira mapping rules. The escalation policies, the customer business service and
-# the Key Vault secrets must already exist (see the module README). One custom
-# suppression rule is shown to illustrate the input shape.
+# the Jira Cloud account mapping must already exist in PagerDuty (see the module
+# README). One custom suppression rule is shown to illustrate the input shape.
+#
+# The Jira profile values come from var.jira_profiles (variables.tf) so the
+# example stays self-contained. In a real client repository they are read from
+# wherever the operator keeps them; the README shows the AWS SSM wiring.
 module "azure_managed_services" {
   source = "../../"
 
@@ -34,9 +27,7 @@ module "azure_managed_services" {
   customer_name        = "ExampleCustomer"
   jira_organization_id = "00000000-0000-0000-0000-000000000000"
 
-  # The vault holding the jira-<profile>-<param> secrets. It must already exist
-  # and be populated by the onboarding runbook.
-  key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-example/providers/Microsoft.KeyVault/vaults/example-vault"
+  jira_profiles = var.jira_profiles
 
   account_suppression_rules = [
     {

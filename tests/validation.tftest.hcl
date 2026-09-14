@@ -1,95 +1,99 @@
-# Jira integration profile names become Key Vault secret names, which allow only
-# letters, numbers and dashes. Underscores and slashes must be rejected by the
-# variable validation. The data-source overrides keep the rest of the plan clean
-# so the only surfaced failure is the expected variable validation.
+# Profile selection: each *_jira_integration_profile must name a key of
+# jira_profiles, and the selected profile's values are what reach the Jira
+# wiring for that concern.
 
 mock_provider "pagerduty" {
   source = "./tests/setup-pagerduty"
 }
 
-mock_provider "azurerm" {
-  source = "./tests/setup"
+variables {
+  jira_profiles = {
+    cs = {
+      account_mapping_name             = "example-jira"
+      project                          = "10001:CS"
+      project_name                     = "Customer Success"
+      issue_type                       = "10002:Task"
+      issue_status_open                = "1:Open"
+      issue_status_acknowledged        = "3:In Progress"
+      issue_status_resolved            = "5:Done"
+      sync_notes_user                  = "cs@example.com"
+      create_issue_on_incident_trigger = "true"
+      custom_jira_fields               = "[]"
+      custom_fixed_fields              = "[]"
+    }
+    noc = {
+      account_mapping_name             = "example-jira"
+      project                          = "10003:NOC"
+      project_name                     = "Network Operations"
+      issue_type                       = "10002:Task"
+      issue_status_open                = "1:Open"
+      issue_status_acknowledged        = "3:In Progress"
+      issue_status_resolved            = "5:Done"
+      sync_notes_user                  = "noc@example.com"
+      create_issue_on_incident_trigger = "false"
+      custom_jira_fields               = "[]"
+      custom_fixed_fields              = "[]"
+    }
+  }
 }
 
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["create-issue-on-incident-trigger"]
-  values = { value = "true" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_account["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_compliance["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_cost["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["custom-jira-fields"]
-  values = { value = "[]" }
-}
-override_data {
-  target = data.azurerm_key_vault_secret.jira_security["custom-fixed-fields"]
-  values = { value = "[]" }
-}
-
-run "underscore_rejected" {
+# A selector that names no profile fails the jira_profiles validation. The
+# default selector is "NOC", which this map deliberately does not carry, so
+# leaving the other three unset exercises the same failure.
+run "unknown_profile_rejected" {
   command = plan
 
   variables {
     org_name             = "TestOrg"
     customer_name        = "TestCustomer"
-    key_vault_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/test-vault"
     jira_organization_id = "test-org-id"
 
-    account_jira_integration_profile = "noc_prod"
+    account_jira_integration_profile    = "cs"
+    compliance_jira_integration_profile = "cs"
+    cost_jira_integration_profile       = "cs"
+    security_jira_integration_profile   = "does-not-exist"
   }
 
   expect_failures = [
-    var.account_jira_integration_profile,
+    var.jira_profiles,
   ]
 }
 
-run "slash_rejected" {
+# Concerns route to different profiles independently, and each one's values
+# land on its own resources.
+run "per_concern_profile_selection" {
   command = plan
 
   variables {
     org_name             = "TestOrg"
     customer_name        = "TestCustomer"
-    key_vault_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/test-vault"
     jira_organization_id = "test-org-id"
 
-    compliance_jira_integration_profile = "NOC/prod"
+    account_jira_integration_profile    = "cs"
+    compliance_jira_integration_profile = "cs"
+    cost_jira_integration_profile       = "cs"
+    security_jira_integration_profile   = "noc"
   }
 
-  expect_failures = [
-    var.compliance_jira_integration_profile,
-  ]
+  assert {
+    condition     = data.pagerduty_user.account_user.email == "cs@example.com" && data.pagerduty_user.security_user.email == "noc@example.com"
+    error_message = "each concern's sync-notes user should come from its own selected profile"
+  }
+
+  # config, jira and project are nested attributes (objects) on this
+  # framework-based resource, so they are reached with dot access, not [0].
+  assert {
+    condition     = pagerduty_jira_cloud_account_mapping_rule.account.config.jira.project.key == "CS" && pagerduty_jira_cloud_account_mapping_rule.security.config.jira.project.key == "NOC"
+    error_message = "the project key should be the second half of each profile's id:key value"
+  }
+
+  assert {
+    condition     = pagerduty_jira_cloud_account_mapping_rule.security.config.jira.project.id == "10003" && pagerduty_jira_cloud_account_mapping_rule.security.config.jira.project.name == "Network Operations"
+    error_message = "the project id and display name should come from the selected profile"
+  }
+
+  assert {
+    condition     = pagerduty_jira_cloud_account_mapping_rule.account.config.jira.create_issue_on_incident_trigger == true && pagerduty_jira_cloud_account_mapping_rule.security.config.jira.create_issue_on_incident_trigger == false
+    error_message = "the create-issue trigger should follow the selected profile"
+  }
 }

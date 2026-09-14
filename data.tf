@@ -1,54 +1,15 @@
 locals {
-  # Key Vault secret name suffixes, one per Jira integration profile parameter.
-  # Key Vault secret names allow only [0-9a-zA-Z-], so the underscore-delimited
-  # parameter names become dash-delimited (e.g. account_mapping_name ->
-  # account-mapping-name). Each secret is named "jira-<profile>-<suffix>".
-  jira_secret_names = [
-    "account-mapping-name", "project", "project-name", "issue-type",
-    "issue-status-open", "issue-status-acknowledged", "issue-status-resolved",
-    "sync-notes-user", "create-issue-on-incident-trigger",
-    "custom-jira-fields", "custom-fixed-fields",
-  ]
-}
-
-########################################
-# Jira parameters - Account
-########################################
-data "azurerm_key_vault_secret" "jira_account" {
-  for_each = toset(local.jira_secret_names)
-
-  name         = "jira-${var.account_jira_integration_profile}-${each.key}"
-  key_vault_id = var.key_vault_id
-}
-
-########################################
-# Jira parameters - Compliance
-########################################
-data "azurerm_key_vault_secret" "jira_compliance" {
-  for_each = toset(local.jira_secret_names)
-
-  name         = "jira-${var.compliance_jira_integration_profile}-${each.key}"
-  key_vault_id = var.key_vault_id
-}
-
-########################################
-# Jira parameters - Cost
-########################################
-data "azurerm_key_vault_secret" "jira_cost" {
-  for_each = toset(local.jira_secret_names)
-
-  name         = "jira-${var.cost_jira_integration_profile}-${each.key}"
-  key_vault_id = var.key_vault_id
-}
-
-########################################
-# Jira parameters - Security
-########################################
-data "azurerm_key_vault_secret" "jira_security" {
-  for_each = toset(local.jira_secret_names)
-
-  name         = "jira-${var.security_jira_integration_profile}-${each.key}"
-  key_vault_id = var.key_vault_id
+  # The Jira integration profile each concern files tickets under, resolved from
+  # var.jira_profiles by the four *_jira_integration_profile selectors. The
+  # module takes the profile VALUES as input and reads no secret store itself;
+  # where they live (AWS SSM in the operator's own account, a tfvars file, a
+  # vault) is the caller's decision. See README, "Jira integration profiles".
+  jira = {
+    account    = var.jira_profiles[var.account_jira_integration_profile]
+    compliance = var.jira_profiles[var.compliance_jira_integration_profile]
+    cost       = var.jira_profiles[var.cost_jira_integration_profile]
+    security   = var.jira_profiles[var.security_jira_integration_profile]
+  }
 }
 
 ########################################
@@ -67,19 +28,19 @@ data "pagerduty_team" "customer_success" {
 }
 
 data "pagerduty_jira_cloud_account_mapping" "account" {
-  subdomain = data.azurerm_key_vault_secret.jira_account["account-mapping-name"].value
+  subdomain = local.jira.account.account_mapping_name
 }
 
 data "pagerduty_jira_cloud_account_mapping" "compliance" {
-  subdomain = data.azurerm_key_vault_secret.jira_compliance["account-mapping-name"].value
+  subdomain = local.jira.compliance.account_mapping_name
 }
 
 data "pagerduty_jira_cloud_account_mapping" "cost" {
-  subdomain = data.azurerm_key_vault_secret.jira_cost["account-mapping-name"].value
+  subdomain = local.jira.cost.account_mapping_name
 }
 
 data "pagerduty_jira_cloud_account_mapping" "security" {
-  subdomain = data.azurerm_key_vault_secret.jira_security["account-mapping-name"].value
+  subdomain = local.jira.security.account_mapping_name
 }
 
 data "pagerduty_priority" "p1" {
@@ -103,17 +64,17 @@ data "pagerduty_priority" "p5" {
 }
 
 data "pagerduty_user" "account_user" {
-  email = data.azurerm_key_vault_secret.jira_account["sync-notes-user"].value
+  email = local.jira.account.sync_notes_user
 }
 
 data "pagerduty_user" "compliance_user" {
-  email = data.azurerm_key_vault_secret.jira_compliance["sync-notes-user"].value
+  email = local.jira.compliance.sync_notes_user
 }
 
 data "pagerduty_user" "cost_user" {
-  email = data.azurerm_key_vault_secret.jira_cost["sync-notes-user"].value
+  email = local.jira.cost.sync_notes_user
 }
 
 data "pagerduty_user" "security_user" {
-  email = data.azurerm_key_vault_secret.jira_security["sync-notes-user"].value
+  email = local.jira.security.sync_notes_user
 }
