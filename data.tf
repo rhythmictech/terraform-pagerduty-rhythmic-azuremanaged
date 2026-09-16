@@ -11,33 +11,35 @@ locals {
     security   = var.jira_profiles[var.security_jira_integration_profile]
   }
 
-  # Every incident event PagerDuty stores on a Slack connection. PagerDuty
-  # EXPANDS the list server-side: a connection created with the twelve events
-  # v0.2.0 declared read back as nineteen, so every later plan proposed removing
-  # the other seven, and applying that would have narrowed what the channel
-  # receives. Measured against live connections on 2026-09-14, matching the
-  # rhythmic-workload module's v1.0.2 fix. If PagerDuty adds an event, add it
-  # here; never let an apply remove one.
+  # Every incident event PagerDuty stores on a Slack connection, in the order
+  # PagerDuty returns them. PagerDuty EXPANDS the list server-side: a
+  # connection created with twelve events read back as nineteen, so every later
+  # plan proposed removing the other seven, and applying that would have
+  # narrowed what the channel receives. The ORDER matters too: provider
+  # releases before 3.24.0 model `config.events` as a list, so a list in any
+  # other order plans a perpetual in-place update; from 3.24.0 it is a set and
+  # order is ignored. Measured against live connections on 2026-09-16. If
+  # PagerDuty adds an event, add it here; never let an apply remove one.
   slack_connection_events = [
-    "incident.acknowledged",
-    "incident.conference_bridge.updated",
-    "incident.custom_field_values.updated",
-    "incident.delegated",
-    "incident.escalated",
+    "incident.triggered",
+    "incident.responder.replied",
     "incident.priority_updated",
     "incident.reassigned",
-    "incident.reopened",
-    "incident.resolved",
     "incident.responder.added",
-    "incident.responder.replied",
-    "incident.service_updated",
+    "incident.reopened",
+    "incident.acknowledged",
+    "incident.delegated",
     "incident.status_update_published",
-    "incident.title_updated",
-    "incident.triggered",
+    "incident.resolved",
     "incident.unacknowledged",
+    "incident.escalated",
+    "incident.conference_bridge.updated",
+    "incident.service_updated",
+    "incident.custom_field_values.updated",
     "incident.urgency_updated",
-    "incident.workflow.completed",
+    "incident.title_updated",
     "incident.workflow.started",
+    "incident.workflow.completed",
   ]
 }
 
